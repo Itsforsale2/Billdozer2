@@ -28,7 +28,7 @@ VENDOR_ALIASES = {
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Job list file (user-provided path)
-JOB_LIST_PATH = r"C:\Python\Samplelists\Jobnames.txt"
+JOB_LIST_PATH = os.path.join(ROOT_DIR, "helperfiles","jobs.txt")
 
 # Billing summary root (inside ROOT_DIR)
 BILLING_SUMMARY_ROOT = os.path.join(ROOT_DIR, "Billing_Summary")
@@ -578,17 +578,32 @@ class InvoiceSorterUI(tk.Tk):
                     new_doc = fitz.open()
                     new_doc.insert_pdf(doc, from_page=page_num, to_page=page_num)
 
-                    vendor = inv.get("vendor", "Vendor").replace(" ", "")
-                    job = (inv.get("jobname", "") or "Job").replace("/", "-").replace(" ", "")
-                    date_str = (inv.get("date", "") or "").replace("/", "-")
-                    total_str = (inv.get("total", "") or "")
+                    # ---------------------------
+                    # Extract fields cleanly
+                    # ---------------------------
+                    invoice_num = inv.get("invoice_number", "") or "NOINV"
+                    vendor = inv.get("vendor", "Vendor")
+                    job = inv.get("jobname", "") or "Job"
+                    date_str = inv.get("date", "") or ""
+                    total_str = inv.get("total", "") or ""
 
-                    # Basic filename; OS-safe cleanup
-                    file_name = f"{vendor}_{job}_{date_str}_{total_str}.pdf"
-                    # remove characters not good in filenames
+                    # ---------------------------
+                    # Clean for filename
+                    # ---------------------------
+                    vendor_clean = vendor.replace(" ", "")
+                    job_clean = job.replace(" ", "").replace("/", "-")
+                    date_clean = date_str.replace("/", "-")
+                    invoice_clean = invoice_num.replace(" ", "")
+                    total_clean = total_str.replace(",", "").replace(" ", "")
+
+                    # Final filename ALWAYS includes invoice number
+                    file_name = f"{vendor_clean}_{job_clean}_{date_clean}_{invoice_clean}_{total_clean}.pdf"
+
+                    # Remove forbidden filename characters
                     bad_chars = ['"', "'", ":", "?", "*", "<", ">", "|"]
                     for ch in bad_chars:
                         file_name = file_name.replace(ch, "")
+
                     out_path = os.path.join(processed_folder, file_name)
 
                     new_doc.save(out_path)
@@ -596,15 +611,14 @@ class InvoiceSorterUI(tk.Tk):
                     total_created += 1
 
                 doc.close()
+
             except Exception as e:
                 messagebox.showwarning(
                     "Processing Error",
                     f"Error processing {os.path.basename(pdf_path)}:\n{e}",
                 )
 
-        #messagebox.showinfo("Done", f"Processed {total_created} individual invoices.")
-
-        # After a short delay, show processed folder contents in left list
+        # After a short delay, show processed folder contents
         self.after(200, lambda: self.show_processed_folder(processed_folder))
 
     def show_processed_folder(self, processed_folder: str):
