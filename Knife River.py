@@ -41,7 +41,6 @@ def extract_job_name_from_text(text):
         if line.lower() == "original":
             if i > 0:
                 candidate = lines[i - 1]
-                # Exclude numeric-only or empty values
                 if not candidate.isdigit() and len(candidate) > 1:
                     return candidate
 
@@ -73,7 +72,6 @@ def extract_item_blocks(text):
     blocks = []
     current = []
 
-    # Words we never want in a load block
     bad_words = {
         "item", "description", "special", "instructions",
         "subtotal", "total", "sales", "discount",
@@ -127,74 +125,101 @@ def parse_block(block, jobname):
 
 
 # ============================================================
-#  BATCH PROCESSING (folder → many PDFs)
+#  BATCH PROCESSING (auto-find matching subfolders)
 # ============================================================
 def batch_process_folder():
-    """Let user pick a folder and process all PDFs inside."""
+    """
+    User selects a YEAR folder (e.g., '2025').
+    Script finds ALL subfolders named exactly like the script filename.
+    Then processes all PDFs inside them.
+    """
+
+    # ----------------------------
+    # Get this script's name
+    # e.g. "Knife River.py" → "Knife River"
+    # ----------------------------
+    SCRIPT_NAME = os.path.splitext(os.path.basename(__file__))[0].strip()
 
     root = Tk()
     root.withdraw()
     root.attributes("-topmost", True)
 
-    folder = filedialog.askdirectory(title="Select Folder Containing PDFs")
-    if not folder:
+    top_folder = filedialog.askdirectory(title=f"Select top folder (contains subfolders with '{SCRIPT_NAME}')")
+    if not top_folder:
         print("Batch cancelled.")
         return None
 
-    folder = os.path.normpath(folder)
+    top_folder = os.path.normpath(top_folder)
 
-    pdf_files = [
-        os.path.join(folder, f)
-        for f in os.listdir(folder)
-        if f.lower().endswith(".pdf")
-    ]
+    # ============================================================
+    # === NEW FOLDER SEARCH LOGIC: find all subfolders matching script name
+    # ============================================================
+    matched_folders = []
 
-    if not pdf_files:
-        print("No PDF files found.")
+    for root_dir, dirs, files in os.walk(top_folder):
+        for d in dirs:
+            if d.lower() == SCRIPT_NAME.lower():
+                full_path = os.path.join(root_dir, d)
+                matched_folders.append(full_path)
+
+    if not matched_folders:
+        print(f"\nNo folders named '{SCRIPT_NAME}' found under:\n{top_folder}")
         return None
 
-    print(f"\nFound {len(pdf_files)} PDF files:")
-    for f in pdf_files:
-        print(" -", os.path.basename(f))
+    print("\nFound matching folders:")
+    for f in matched_folders:
+        print(" -", f)
 
+    # ============================================================
+    # Process PDFs from all matched folders
+    # ============================================================
     all_items = []
     bad_files = 0
 
-    for pdf in pdf_files:
-        pdf = os.path.normpath(pdf)
-        print(f"\nProcessing: {os.path.basename(pdf)}")
+    for folder in matched_folders:
+        print(f"\n📂 Processing folder: {folder}")
 
-        # Try opening PDF
-        try:
-            text = extract_pdf_text(pdf)
-        except Exception as e:
-            print(f"   Skipping file (unreadable): {e}")
-            bad_files += 1
+        pdf_files = [
+            os.path.join(folder, f)
+            for f in os.listdir(folder)
+            if f.lower().endswith(".pdf")
+        ]
+
+        if not pdf_files:
+            print("   No PDF files found in this folder.")
             continue
 
-        # FILTER 1 — must contain ORIGINAL
-        if "ORIGINAL" not in text.upper():
-            print("   Skipping (not a haul invoice – no ORIGINAL found)")
-            continue
+        for pdf in pdf_files:
+            pdf = os.path.normpath(pdf)
+            print(f"\nProcessing: {os.path.basename(pdf)}")
 
-        # FILTER 2 — must contain at least one truck code
-        words = text.split()
-        has_truck = any(re.fullmatch(r"[A-Z]{3}\d", w) for w in words)
-        if not has_truck:
-            print("   Skipping (no truck codes found)")
-            continue
+            try:
+                text = extract_pdf_text(pdf)
+            except Exception as e:
+                print(f"   Skipping unreadable file: {e}")
+                bad_files += 1
+                continue
 
-        jobname = extract_job_name_from_text(text)
-        blocks = extract_item_blocks(text)
+            if "ORIGINAL" not in text.upper():
+                print("   Skipping (not a haul invoice – no ORIGINAL found)")
+                continue
 
-        if not blocks:
-            print("   No load blocks found on this file.")
-            continue
+            words = text.split()
+            has_truck = any(re.fullmatch(r"[A-Z]{3}\d", w) for w in words)
+            if not has_truck:
+                print("   Skipping (no truck codes found)")
+                continue
 
-        # Parse load blocks
-        for block in blocks:
-            item = parse_block(block, jobname)
-            all_items.append(item)
+            jobname = extract_job_name_from_text(text)
+            blocks = extract_item_blocks(text)
+
+            if not blocks:
+                print("   No load blocks found.")
+                continue
+
+            for block in blocks:
+                item = parse_block(block, jobname)
+                all_items.append(item)
 
     print(f"\nFinished batch.")
     print(f"Extracted loads: {len(all_items)}")
@@ -255,7 +280,7 @@ def export_batch_to_excel(all_items):
 #  MAIN
 # ============================================================
 if __name__ == "__main__":
-    print("Select a folder to batch process all PDFs...")
+    print("Select the TOP folder (e.g., 2025)...")
 
     all_items = batch_process_folder()
 
